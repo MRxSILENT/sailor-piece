@@ -1,0 +1,59 @@
+name: Auto-Update Tier Data
+
+on:
+  schedule:
+    # Every 30 minutes
+    - cron: '*/30 * * * *'
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    name: Scrape & Update data.json
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ⚓ Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🌐 Run scraper
+        run: node scripts/scraper.js
+
+      - name: 📊 Check for changes
+        id: changes
+        run: |
+          if git diff --quiet public/data.json; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No changes to data.json"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "data.json has been updated"
+          fi
+
+      - name: 💾 Commit updated data
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git config user.name  "Sailor Piece Bot"
+          git config user.email "bot@sailorpiece.hub"
+          git add public/data.json
+          git commit -m "🤖 Auto-update tier data [$(date -u '+%Y-%m-%d %H:%M UTC')]"
+          git push
+
+      - name: 🚀 Trigger Vercel Deploy
+        if: steps.changes.outputs.changed == 'true' && env.VERCEL_DEPLOY_HOOK != ''
+        run: curl -X POST "${{ secrets.VERCEL_DEPLOY_HOOK }}"
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
